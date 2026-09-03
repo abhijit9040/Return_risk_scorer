@@ -1,0 +1,29 @@
+.env
+.env.*
+!.env.example
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ipynb_checkpoints/
+.DS_Store
+Thumbs.db
+
+# data & artifacts (keep structure via .gitkeep)
+data/raw/*
+!data/raw/.gitkeep
+data/processed/*
+!data/processed/.gitkeep
+models/*
+!models/.gitkeep
+outputs/**/*
+!outputs/**/.gitkeep
+
+# local secrets / runtime
+*.joblib
+*.pkl
+.streamlit/secrets.toml
+scripts/_*.py
