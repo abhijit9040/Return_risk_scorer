@@ -19,8 +19,16 @@ data/processed/*
 !data/processed/.gitkeep
 models/*
 !models/.gitkeep
-outputs/**/*
-!outputs/**/.gitkeep
+outputs/*
+!outputs/metrics/
+!outputs/audit/
+!outputs/plots/
+outputs/metrics/*
+outputs/audit/*
+outputs/plots/*
+!outputs/metrics/.gitkeep
+!outputs/audit/.gitkeep
+!outputs/plots/.gitkeep
 
 # local secrets / runtime
 *.joblib
