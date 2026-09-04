@@ -77,6 +77,32 @@ def get_category_options() -> dict[str, list[str]]:
     return options
 
 
+@st.cache_data
+def get_manual_field_bounds() -> dict[str, dict[str, float]]:
+    """1st–99th percentile bounds from train_df for manual numeric inputs.
+
+    Using percentiles (not raw max) avoids a single outlier stretching the UI
+    into out-of-distribution territory.
+    """
+    train_df, _ = get_split_frames()
+    fields = (
+        "refund_amount_requested_usd",
+        "days_to_return",
+        "return_rate_pct",
+        "account_age_days",
+    )
+    bounds: dict[str, dict[str, float]] = {}
+    for col in fields:
+        series = pd.to_numeric(train_df[col], errors="coerce").dropna()
+        lo = float(series.quantile(0.01))
+        hi = float(series.quantile(0.99))
+        if hi < lo:
+            lo, hi = hi, lo
+        # Widget min stays 0; store observed low for the caption
+        bounds[col] = {"p01": lo, "p99": hi, "max": hi}
+    return bounds
+
+
 def load_json(path: Path):
     if path.exists():
         return json.loads(path.read_text(encoding="utf-8"))
@@ -181,6 +207,21 @@ with tabs[0]:
                 result = score_return(row, det, audit=audit)
                 render_score_result(result)
         else:
+            bounds = get_manual_field_bounds()
+            refund_max = float(bounds["refund_amount_requested_usd"]["max"])
+            days_max = int(round(bounds["days_to_return"]["max"]))
+            rate_max = float(bounds["return_rate_pct"]["max"])
+            age_max = int(round(bounds["account_age_days"]["max"]))
+            refund_p01 = float(bounds["refund_amount_requested_usd"]["p01"])
+            days_p01 = float(bounds["days_to_return"]["p01"])
+            rate_p01 = float(bounds["return_rate_pct"]["p01"])
+            age_p01 = float(bounds["account_age_days"]["p01"])
+
+            refund_default = min(float(defaults["refund_amount_requested_usd"]), refund_max)
+            days_default = min(int(defaults["days_to_return"]), days_max)
+            rate_default = min(float(defaults["return_rate_pct"]), rate_max)
+            age_default = min(int(defaults["account_age_days"]), age_max)
+
             with st.form("manual_score_form"):
                 st.markdown("**Key return fields**")
                 c1, c2 = st.columns(2)
@@ -188,25 +229,29 @@ with tabs[0]:
                     refund = st.number_input(
                         "Refund amount (USD)",
                         min_value=0.0,
-                        value=float(defaults["refund_amount_requested_usd"]),
+                        max_value=refund_max,
+                        value=refund_default,
                         step=1.0,
                     )
                     days_to_return = st.number_input(
                         "Days to return",
                         min_value=0,
-                        value=int(defaults["days_to_return"]),
+                        max_value=days_max,
+                        value=days_default,
                         step=1,
                     )
                     return_rate = st.number_input(
                         "Return rate (%)",
                         min_value=0.0,
-                        value=float(defaults["return_rate_pct"]),
+                        max_value=rate_max,
+                        value=rate_default,
                         step=0.1,
                     )
                     account_age = st.number_input(
                         "Account age (days)",
                         min_value=0,
-                        value=int(defaults["account_age_days"]),
+                        max_value=age_max,
+                        value=age_default,
                         step=1,
                     )
                 with c2:
@@ -238,6 +283,17 @@ with tabs[0]:
                         else 0,
                     )
                 submitted = st.form_submit_button("Score manual return", type="primary")
+
+            st.caption(
+                "Numeric inputs are capped at the training data's 1st–99th percentile "
+                "range to avoid out-of-distribution predictions: "
+                f"refund ${refund_p01:,.0f}–${refund_max:,.0f}, "
+                f"days to return {days_p01:.0f}–{days_max}, "
+                f"return rate {rate_p01:.1f}–{rate_max:.1f}%, "
+                f"account age {age_p01:.0f}–{age_max} days. "
+                "Widget minimum stays 0; the upper bound is the 99th percentile "
+                "(not a single outlier max)."
+            )
 
             if submitted:
                 row = dict(defaults)
