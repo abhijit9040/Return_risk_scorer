@@ -193,6 +193,11 @@ with tabs[0]:
             days_max = int(round(bounds["days_to_return"]["max"]))
             rate_max = float(bounds["return_rate_pct"]["max"])
             age_max = int(round(bounds["account_age_days"]["max"]))
+            orders_max = int(round(bounds["total_orders_lifetime"]["max"]))
+            returns_max = int(round(bounds["total_returns_lifetime"]["max"]))
+            disputes_max = int(round(bounds["previous_dispute_count"]["max"]))
+            support_max = int(round(bounds["customer_support_contacts"]["max"]))
+
             refund_p01 = float(bounds["refund_amount_requested_usd"]["p01"])
             days_p01 = float(bounds["days_to_return"]["p01"])
             rate_p01 = float(bounds["return_rate_pct"]["p01"])
@@ -202,6 +207,49 @@ with tabs[0]:
             days_default = min(int(defaults["days_to_return"]), days_max)
             rate_default = min(float(defaults["return_rate_pct"]), rate_max)
             age_default = min(int(defaults["account_age_days"]), age_max)
+            orders_default = min(int(defaults["total_orders_lifetime"]), orders_max)
+            returns_default = min(int(defaults["total_returns_lifetime"]), returns_max)
+            disputes_default = min(int(defaults["previous_dispute_count"]), disputes_max)
+            support_default = min(int(defaults["customer_support_contacts"]), support_max)
+
+            st.info(
+                "Other columns default to training medians (typical legitimate shopper). "
+                "Changing refund/category alone rarely flips the decision — raise "
+                "**return rate %**, **lifetime returns**, and **disputes** to see hold/escalate."
+            )
+
+            preset = st.selectbox(
+                "Quick preset (fills the form fields below)",
+                [
+                    "Custom (use fields below)",
+                    "Legitimate (low risk)",
+                    "Policy abuser (hold)",
+                    "Fraudulent return (escalate)",
+                ],
+                index=0,
+            )
+            if preset == "Legitimate (low risk)":
+                refund_default, days_default, rate_default = 80.0, 14, 5.0
+                age_default, orders_default, returns_default = 800, 40, 2
+                disputes_default, support_default = 0, 0
+            elif preset == "Policy abuser (hold)":
+                refund_default, days_default, rate_default = 120.0, 10, 65.0
+                age_default, orders_default, returns_default = 600, 20, 12
+                disputes_default, support_default = 3, 4
+            elif preset == "Fraudulent return (escalate)":
+                refund_default, days_default, rate_default = 450.0, 3, 55.0
+                age_default, orders_default, returns_default = 90, 8, 5
+                disputes_default, support_default = 4, 5
+
+            # Clamp presets into bounds
+            refund_default = min(max(0.0, refund_default), refund_max)
+            days_default = min(max(0, days_default), days_max)
+            rate_default = min(max(0.0, rate_default), rate_max)
+            age_default = min(max(0, age_default), age_max)
+            orders_default = min(max(0, orders_default), orders_max)
+            returns_default = min(max(0, returns_default), min(returns_max, orders_default))
+            disputes_default = min(max(0, disputes_default), disputes_max)
+            support_default = min(max(0, support_default), support_max)
 
             with st.form("manual_score_form"):
                 st.markdown("**Key return fields**")
@@ -222,7 +270,7 @@ with tabs[0]:
                         step=1,
                     )
                     return_rate = st.number_input(
-                        "Return rate (%)",
+                        "Return rate (%) — strong risk driver",
                         min_value=0.0,
                         max_value=rate_max,
                         value=rate_default,
@@ -235,7 +283,43 @@ with tabs[0]:
                         value=age_default,
                         step=1,
                     )
+                    total_orders = st.number_input(
+                        "Total orders (lifetime)",
+                        min_value=0,
+                        max_value=orders_max,
+                        value=orders_default,
+                        step=1,
+                    )
+                    total_returns = st.number_input(
+                        "Total returns (lifetime)",
+                        min_value=0,
+                        max_value=returns_max,
+                        value=returns_default,
+                        step=1,
+                    )
                 with c2:
+                    previous_disputes = st.number_input(
+                        "Previous dispute count",
+                        min_value=0,
+                        max_value=disputes_max,
+                        value=disputes_default,
+                        step=1,
+                    )
+                    support_contacts = st.number_input(
+                        "Customer support contacts",
+                        min_value=0,
+                        max_value=support_max,
+                        value=support_default,
+                        step=1,
+                    )
+                    high_value = st.checkbox(
+                        "High-value item",
+                        value=bool(int(defaults.get("is_high_value_item", 0))),
+                    )
+                    opened = st.checkbox(
+                        "Item returned opened",
+                        value=bool(int(defaults.get("item_returned_opened", 0))),
+                    )
                     product_category = st.selectbox(
                         "Product category",
                         options=cat_options["product_category"],
@@ -272,12 +356,17 @@ with tabs[0]:
                 f"days to return {days_p01:.0f}–{days_max}, "
                 f"return rate {rate_p01:.1f}–{rate_max:.1f}%, "
                 f"account age {age_p01:.0f}–{age_max} days. "
-                "Widget minimum stays 0; the upper bound is the 99th percentile "
-                "(not a single outlier max)."
+                "Try preset **Policy abuser** or **Fraudulent return** if you want a "
+                "non-approve decision quickly."
             )
 
             if submitted:
                 row = dict(defaults)
+                orders_val = int(total_orders)
+                returns_val = int(total_returns)
+                # Keep returns <= orders to avoid insufficient_signal contradiction
+                if returns_val > orders_val > 0:
+                    returns_val = orders_val
                 row.update(
                     {
                         "order_id": "MANUAL-UI-001",
@@ -285,16 +374,17 @@ with tabs[0]:
                         "days_to_return": int(days_to_return),
                         "return_rate_pct": float(return_rate),
                         "account_age_days": int(account_age),
+                        "total_orders_lifetime": orders_val,
+                        "total_returns_lifetime": returns_val,
+                        "previous_dispute_count": int(previous_disputes),
+                        "customer_support_contacts": int(support_contacts),
+                        "is_high_value_item": int(high_value),
+                        "item_returned_opened": int(opened),
                         "product_category": product_category,
                         "payment_method": payment_method,
                         "return_reason": return_reason,
                     }
                 )
-                # Ensure returns cannot exceed orders on the default fill
-                orders = int(row.get("total_orders_lifetime", 0) or 0)
-                returns = int(row.get("total_returns_lifetime", 0) or 0)
-                if returns > orders > 0:
-                    row["total_returns_lifetime"] = max(0, orders - 1)
 
                 det = get_detector()
                 audit = AuditLogger()

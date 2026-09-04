@@ -10,6 +10,10 @@ MANUAL_BOUND_FIELDS = (
     "days_to_return",
     "return_rate_pct",
     "account_age_days",
+    "total_orders_lifetime",
+    "total_returns_lifetime",
+    "previous_dispute_count",
+    "customer_support_contacts",
 )
 
 
