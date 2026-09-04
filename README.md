@@ -72,12 +72,28 @@ streamlit run app/streamlit_app.py
 
 Thresholds are tuned against an explicit **false-positive cost scaled by `refund_amount_requested_usd`** (FN ≈ full refund at stake; FP hold/escalate = rate × refund). See `outputs/metrics/policy_table.json` after training.
 
+## Held-out metrics
+
+After `scripts/evaluate.py`, the holdout confusion matrix is written to `outputs/plots/confusion_matrix.png`:
+
+![Holdout confusion matrix](outputs/plots/confusion_matrix.png)
+
+Macro F1 on this synthetic set is ≈ 0.999 — report it honestly; see the dataset note above and Known limitations below.
+
 ## Compliance
 
 - Strictly defense-only
 - No account suspension / payment blocking / auto-denial
 - Every automated decision is human-reversible
 - Metrics reported on a true held-out split
+
+## Known limitations (live deployment)
+
+- Validated on a static synthetic Kaggle dataset, not live merchant return traffic.
+- Features such as `return_rate_pct`, `total_returns_lifetime`, and `category_abuse_rate` are precomputed aggregates; production would need a real-time feature store.
+- There is no model-side out-of-distribution detector beyond the Streamlit manual-entry input caps (training 99th percentiles).
+- Cold-start customers with little or no history remain a blind spot for behavioral signals.
+- Ground-truth abuse labels arrive late (after investigation), so live retraining cannot be immediate.
 
 ## Project layout
 
@@ -89,4 +105,5 @@ src/audit/      # JSONL/SQLite logger
 src/pipeline.py # end-to-end
 app/            # Streamlit UI
 scripts/        # train / evaluate / demo
+tests/          # pytest leakage / cost / failure-path checks
 ```

@@ -29,6 +29,7 @@ outputs/plots/*
 !outputs/metrics/.gitkeep
 !outputs/audit/.gitkeep
 !outputs/plots/.gitkeep
+!outputs/plots/confusion_matrix.png
 
 # local secrets / runtime
 *.joblib

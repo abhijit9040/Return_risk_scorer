@@ -68,7 +68,18 @@ def _parse_json_text(raw: str) -> dict[str, Any]:
     if text.startswith("```"):
         text = re.sub(r"^```(?:json)?\s*", "", text)
         text = re.sub(r"\s*```$", "", text)
-    return json.loads(text)
+    data = json.loads(text)
+    if not isinstance(data, dict):
+        raise ValueError("LLM response JSON must be an object")
+    return data
+
+
+def _warn_llm_failure(provider: str, exc: BaseException) -> None:
+    print(
+        f"WARNING: {provider} auto-responder failed "
+        f"({type(exc).__name__}): {exc}",
+        flush=True,
+    )
 
 
 def _draft_with_gemini(payload: dict[str, Any]) -> dict[str, Any] | None:
@@ -98,17 +109,16 @@ def _draft_with_gemini(payload: dict[str, Any]) -> dict[str, Any] | None:
                 ),
             ),
         )
-        data = _parse_json_text(response.text or "{}")
+        raw = getattr(response, "text", None) or ""
+        data = _parse_json_text(raw)
         return {
             "case_note": data.get("case_note") or _fallback_response(payload)["case_note"],
             "customer_message": data.get("customer_message"),
             "generator": f"gemini:{model_name}",
         }
-    except Exception as exc:  # noqa: BLE001
-        fb = _fallback_response(payload)
-        fb["generator"] = f"fallback_after_gemini_error:{type(exc).__name__}"
-        fb["error"] = str(exc)
-        return fb
+    except Exception as exc:  # noqa: BLE001 — degrade to template, never crash
+        _warn_llm_failure("Gemini", exc)
+        return None
 
 
 def _draft_with_openai(payload: dict[str, Any]) -> dict[str, Any] | None:
@@ -138,17 +148,15 @@ def _draft_with_openai(payload: dict[str, Any]) -> dict[str, Any] | None:
             ],
         )
         raw = completion.choices[0].message.content or "{}"
-        data = json.loads(raw)
+        data = _parse_json_text(raw)
         return {
             "case_note": data.get("case_note") or _fallback_response(payload)["case_note"],
             "customer_message": data.get("customer_message"),
             "generator": f"openai:{model}",
         }
-    except Exception as exc:  # noqa: BLE001
-        fb = _fallback_response(payload)
-        fb["generator"] = f"fallback_after_openai_error:{type(exc).__name__}"
-        fb["error"] = str(exc)
-        return fb
+    except Exception as exc:  # noqa: BLE001 — degrade to template, never crash
+        _warn_llm_failure("OpenAI", exc)
+        return None
 
 
 def draft_response(
@@ -164,22 +172,10 @@ def draft_response(
 
     if provider in {"auto", "gemini"}:
         result = _draft_with_gemini(payload)
-        if result is not None and not str(result.get("generator", "")).startswith(
-            "fallback_after_gemini_error"
-        ):
+        if result is not None:
             return result
         if provider == "gemini":
-            return result or _fallback_response(payload)
-        # auto: if gemini hard-failed, try openai next
-        if result is not None and str(result.get("generator", "")).startswith(
-            "fallback_after_gemini_error"
-        ):
-            openai_result = _draft_with_openai(payload)
-            if openai_result is not None and not str(
-                openai_result.get("generator", "")
-            ).startswith("fallback_after_openai_error"):
-                return openai_result
-            return result
+            return _fallback_response(payload)
 
     if provider in {"auto", "openai"}:
         result = _draft_with_openai(payload)

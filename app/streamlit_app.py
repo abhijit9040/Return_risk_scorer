@@ -14,6 +14,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from src.audit.logger import AuditLogger
+from src.bounds import compute_manual_field_bounds
 from src.config import METRICS_DIR, MODELS_DIR, PLOTS_DIR, TARGET_COL, LABEL_ID_COL
 from src.data import load_split
 from src.detector.model import ReturnRiskDetector
@@ -79,29 +80,9 @@ def get_category_options() -> dict[str, list[str]]:
 
 @st.cache_data
 def get_manual_field_bounds() -> dict[str, dict[str, float]]:
-    """1st–99th percentile bounds from train_df for manual numeric inputs.
-
-    Using percentiles (not raw max) avoids a single outlier stretching the UI
-    into out-of-distribution territory.
-    """
+    """1st–99th percentile bounds from train_df for manual numeric inputs."""
     train_df, _ = get_split_frames()
-    fields = (
-        "refund_amount_requested_usd",
-        "days_to_return",
-        "return_rate_pct",
-        "account_age_days",
-    )
-    bounds: dict[str, dict[str, float]] = {}
-    for col in fields:
-        series = pd.to_numeric(train_df[col], errors="coerce").dropna()
-        lo = float(series.quantile(0.01))
-        hi = float(series.quantile(0.99))
-        if hi < lo:
-            lo, hi = hi, lo
-        # Widget min stays 0; store observed low for the caption
-        bounds[col] = {"p01": lo, "p99": hi, "max": hi}
-    return bounds
-
+    return compute_manual_field_bounds(train_df)
 
 def load_json(path: Path):
     if path.exists():
